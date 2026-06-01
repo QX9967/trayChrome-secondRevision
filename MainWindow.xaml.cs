@@ -38,6 +38,13 @@ namespace TrayChrome
         private const int HTBOTTOM = 15;
         private const int HTBOTTOMLEFT = 16;
         private const int HTBOTTOMRIGHT = 17;
+
+        [DllImport("user32.dll")]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+        private static readonly IntPtr HWND_TOP = IntPtr.Zero;
+        private const uint SWP_NOZORDER = 0x0004;
+        private const uint SWP_NOACTIVATE = 0x0010;
         
         private List<Bookmark> bookmarks = new List<Bookmark>();
         private string bookmarksFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "bookmarks.json");
@@ -650,7 +657,7 @@ namespace TrayChrome
                  var buttons = new[]
                  {
                      CloseButton, BackButton, ForwardButton, RefreshButton, BookmarkButton,
-                     DarkModeButton, PopupButton, UAButton, TopMostButton, ZoomOutButton, ZoomInButton, ProxyButton
+                     DarkModeButton, PopupButton, UAButton, TopMostButton, ZoomOutButton, ZoomInButton, ProxyButton, SaveLayoutButton
                  };
                  
                  // 创建新的样式，根据暗色/亮色模式设置不同的悬停和按下颜色
@@ -973,7 +980,6 @@ namespace TrayChrome
                         url = "https://" + url;
                     }
                     
-                    ApplyDomainSettings(url);
                     webView.CoreWebView2?.Navigate(url);
                 }
             }
@@ -1187,7 +1193,6 @@ namespace TrayChrome
                     if (bookmarkItem.Tag != null)
                     {
                         var url = bookmarkItem.Tag.ToString();
-                        ApplyDomainSettings(url);
                         webView.CoreWebView2?.Navigate(url);
                     }
                 };
@@ -1631,6 +1636,42 @@ namespace TrayChrome
         private void DragButton_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             this.DragMove();
+        }
+
+        private void SaveLayoutButton_Click(object sender, RoutedEventArgs e)
+        {
+            var url = webView?.CoreWebView2?.Source ?? webView?.Source?.ToString() ?? "";
+            var domain = ExtractDomain(url);
+            if (string.IsNullOrEmpty(domain))
+            {
+                MessageBox.Show("无法获取当前域名", "保存失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            if (this.WindowState != WindowState.Normal)
+                return;
+
+            var newSettings = new DomainSettings
+            {
+                Width = this.Width,
+                Height = this.Height,
+                Left = this.Left,
+                Top = this.Top,
+                ZoomFactor = currentZoomFactor
+            };
+
+            if (domainSettings.TryGetValue(domain, out var existing) && IsSameDomainSettings(existing, newSettings))
+            {
+                currentDomain = domain;
+                MessageBox.Show($"当前 {domain} 的窗口配置未变化，无需保存。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            domainSettings[domain] = newSettings;
+            SaveDomainSettingsFile();
+            currentDomain = domain;
+
+            MessageBox.Show($"已保存 {domain} 的窗口配置\n宽:{this.Width:F0} 高:{this.Height:F0} 缩放:{currentZoomFactor:F1}", "保存成功", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         
         // ResizeButton的窗口调整大小功能
@@ -2245,7 +2286,10 @@ namespace TrayChrome
             try
             {
                 var uri = new Uri(url);
-                return uri.Host.ToLower();
+                var host = uri.Host.ToLower();
+                if (host.StartsWith("www."))
+                    host = host.Substring(4);
+                return host;
             }
             catch
             {
@@ -2261,7 +2305,7 @@ namespace TrayChrome
             if (this.WindowState != WindowState.Normal)
                 return;
 
-            domainSettings[currentDomain] = new DomainSettings
+            var newSettings = new DomainSettings
             {
                 Width = this.Width,
                 Height = this.Height,
@@ -2269,7 +2313,22 @@ namespace TrayChrome
                 Top = this.Top,
                 ZoomFactor = currentZoomFactor
             };
+
+            if (domainSettings.TryGetValue(currentDomain, out var existing) && IsSameDomainSettings(existing, newSettings))
+                return;
+
+            domainSettings[currentDomain] = newSettings;
             SaveDomainSettingsFile();
+        }
+
+        private static bool IsSameDomainSettings(DomainSettings a, DomainSettings b)
+        {
+            const double epsilon = 0.01;
+            return Math.Abs(a.Width - b.Width) < epsilon
+                && Math.Abs(a.Height - b.Height) < epsilon
+                && Math.Abs(a.Left - b.Left) < epsilon
+                && Math.Abs(a.Top - b.Top) < epsilon
+                && Math.Abs(a.ZoomFactor - b.ZoomFactor) < epsilon;
         }
 
         public void ApplyDomainSettings(string url)
@@ -2280,10 +2339,16 @@ namespace TrayChrome
 
             if (domainSettings.TryGetValue(domain, out var ds))
             {
-                this.Width = ds.Width;
-                this.Height = ds.Height;
+                var dpiScale = PresentationSource.FromVisual(this)?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
+                var handle = new WindowInteropHelper(this).Handle;
+                SetWindowPos(handle, HWND_TOP,
+                    (int)(ds.Left * dpiScale), (int)(ds.Top * dpiScale),
+                    (int)(ds.Width * dpiScale), (int)(ds.Height * dpiScale),
+                    SWP_NOZORDER | SWP_NOACTIVATE);
                 this.Left = ds.Left;
                 this.Top = ds.Top;
+                this.Width = ds.Width;
+                this.Height = ds.Height;
                 currentZoomFactor = ds.ZoomFactor;
                 if (webView?.CoreWebView2 != null)
                     webView.ZoomFactor = currentZoomFactor;
@@ -2301,6 +2366,17 @@ namespace TrayChrome
                 SaveCurrentDomainSettings();
             }
             currentDomain = newDomain;
+            
+            if (domainSettings.TryGetValue(currentDomain, out var ds))
+            {
+                this.Width = ds.Width;
+                this.Height = ds.Height;
+                this.Left = ds.Left;
+                this.Top = ds.Top;
+                currentZoomFactor = ds.ZoomFactor;
+                if (webView?.CoreWebView2 != null)
+                    webView.ZoomFactor = currentZoomFactor;
+            }
         }
     }
 
