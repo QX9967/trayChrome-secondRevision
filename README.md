@@ -117,9 +117,27 @@
 
 
 
-## 🛠️ 技术栈
+## 🔧 二次开发 (这份修订版本)
 
-- **框架**：.NET 6.0 + WPF
+基于 [原始项目](https://github.com/cornradio/tray-chrome) 做了以下修改：
+
+1. **更换默认图标**：将默认图标替换为 `Resources/default.ico`，移除所有备选图标（钉钉/飞书/企业微信/微信）及相关切换功能
+2. **删除图标切换功能**：移除设置中的「图标设置」面板，代码中 `SetIcon_Click`、`SetCustomIcon_Click`、`SaveIconSetting`、`LoadIconSetting` 等方法全部移除
+3. **优化窗口调整大小体验**：
+   - 右下角 resize 手柄添加可见 `↘` 图标（原为空内容无法看见）
+   - 窗口边缘检测区域从 5px 扩大到 10px，更容易触发调整大小光标
+   - resize 手柄改为浮动定位，窗口缩小时不会消失
+4. **升级框架**：目标框架从 .NET 6.0 升级到 .NET 9.0
+
+### 编译打包
+```powershell
+.\pack.ps1
+```
+生成框架依赖型单文件 `publish\TrayChrome.exe`（约 1.3MB），目标电脑需安装 .NET 9.0 Desktop Runtime。
+
+
+## 🛠️ 技术栈
+- **框架**：.NET 9.0 + WPF
 - **浏览器引擎**：Microsoft WebView2
 - **托盘支持**：Hardcodet.NotifyIcon.Wpf
 - **目标平台**：Windows 10/11
