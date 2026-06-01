@@ -1,5 +1,7 @@
 # TrayChrome - 托盘浏览器
 
+> 基于 [cornradio/tray-chrome](https://github.com/cornradio/tray-chrome) 二次开发
+
 一个基于 WPF 和 WebView2 的轻量级托盘浏览器，专为 Windows 设计。类似 MenubarX，但更加轻便和功能丰富。
 [这里](https://abstracted-aragon-945.notion.site/28965c515f2a80fdaac0d31063436139?v=28965c515f2a8008bc0f000c544792c5&pvs=74)是一些建议网站，适合traychrome
 
