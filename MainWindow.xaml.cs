@@ -42,6 +42,9 @@ namespace TrayChrome
         private List<Bookmark> bookmarks = new List<Bookmark>();
         private string bookmarksFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "bookmarks.json");
         private string settingsFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");
+        private string domainSettingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "domain-settings.json");
+        private Dictionary<string, DomainSettings> domainSettings = new Dictionary<string, DomainSettings>();
+        private string currentDomain = "";
         private bool isBookmarkPanelVisible = false;
         private bool isMobileUA = true;
         private const string MobileUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
@@ -69,6 +72,7 @@ namespace TrayChrome
         {
             InitializeComponent();
             LoadSettings();
+            LoadDomainSettings();
             
             // 应用自定义窗口大小（如果提供）
             if (customWidth.HasValue && customHeight.HasValue)
@@ -128,6 +132,7 @@ namespace TrayChrome
             this.Closing += (sender, e) => 
             {
                 StopMemoryCleanupTimer();
+                SaveCurrentDomainSettings();
                 SaveSettings();
             };
             
@@ -301,6 +306,7 @@ namespace TrayChrome
                 if (e.IsSuccess)
                 {
                     UpdateHistory(webView.Source.ToString(), webView.CoreWebView2.DocumentTitle);
+                    OnDomainChanged(webView.Source.ToString());
                 }
 
                 // 确保每个页面都使用相同的缩放比例
@@ -962,12 +968,12 @@ namespace TrayChrome
             {
                 if (!string.IsNullOrWhiteSpace(url))
                 {
-                    // 如果不是完整URL，添加https://
                     if (!url.StartsWith("http://") && !url.StartsWith("https://"))
                     {
                         url = "https://" + url;
                     }
                     
+                    ApplyDomainSettings(url);
                     webView.CoreWebView2?.Navigate(url);
                 }
             }
@@ -1180,7 +1186,9 @@ namespace TrayChrome
                 bookmarkItem.Click += (s, args) => {
                     if (bookmarkItem.Tag != null)
                     {
-                        webView.CoreWebView2?.Navigate(bookmarkItem.Tag.ToString());
+                        var url = bookmarkItem.Tag.ToString();
+                        ApplyDomainSettings(url);
+                        webView.CoreWebView2?.Navigate(url);
                     }
                 };
                 
@@ -2206,6 +2214,103 @@ namespace TrayChrome
             dialog.Content = grid;
             dialog.ShowDialog();
         }
+
+        // ========== 按域名记忆窗口大小/位置/缩放 ==========
+
+        private void LoadDomainSettings()
+        {
+            try
+            {
+                if (File.Exists(domainSettingsPath))
+                {
+                    var json = File.ReadAllText(domainSettingsPath);
+                    domainSettings = JsonSerializer.Deserialize<Dictionary<string, DomainSettings>>(json) ?? new Dictionary<string, DomainSettings>();
+                }
+            }
+            catch { }
+        }
+
+        private void SaveDomainSettingsFile()
+        {
+            try
+            {
+                var json = JsonSerializer.Serialize(domainSettings, new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(domainSettingsPath, json);
+            }
+            catch { }
+        }
+
+        private string ExtractDomain(string url)
+        {
+            try
+            {
+                var uri = new Uri(url);
+                return uri.Host.ToLower();
+            }
+            catch
+            {
+                return "";
+            }
+        }
+
+        private void SaveCurrentDomainSettings()
+        {
+            if (string.IsNullOrEmpty(currentDomain))
+                return;
+
+            if (this.WindowState != WindowState.Normal)
+                return;
+
+            domainSettings[currentDomain] = new DomainSettings
+            {
+                Width = this.Width,
+                Height = this.Height,
+                Left = this.Left,
+                Top = this.Top,
+                ZoomFactor = currentZoomFactor
+            };
+            SaveDomainSettingsFile();
+        }
+
+        public void ApplyDomainSettings(string url)
+        {
+            var domain = ExtractDomain(url);
+            if (string.IsNullOrEmpty(domain))
+                return;
+
+            if (domainSettings.TryGetValue(domain, out var ds))
+            {
+                this.Width = ds.Width;
+                this.Height = ds.Height;
+                this.Left = ds.Left;
+                this.Top = ds.Top;
+                currentZoomFactor = ds.ZoomFactor;
+                if (webView?.CoreWebView2 != null)
+                    webView.ZoomFactor = currentZoomFactor;
+            }
+        }
+
+        private void OnDomainChanged(string url)
+        {
+            var newDomain = ExtractDomain(url);
+            if (string.IsNullOrEmpty(newDomain))
+                return;
+
+            if (currentDomain != newDomain && !string.IsNullOrEmpty(currentDomain))
+            {
+                SaveCurrentDomainSettings();
+            }
+            currentDomain = newDomain;
+        }
+    }
+
+    public class DomainSettings
+    {
+        public double Width { get; set; }
+        public double Height { get; set; }
+        public double Left { get; set; }
+        public double Top { get; set; }
+        public double ZoomFactor { get; set; } = 1.0;
     }
 
     public class Bookmark

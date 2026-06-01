@@ -751,7 +751,9 @@ $Shortcut.Save()
                         bookmarkItem.Click += (s, args) => {
                             if (bookmarkItem.Tag != null && mainWindow?.webView?.CoreWebView2 != null)
                             {
-                                mainWindow.webView.CoreWebView2.Navigate(bookmarkItem.Tag.ToString());
+                                var url = bookmarkItem.Tag.ToString();
+                                mainWindow.ApplyDomainSettings(url);
+                                mainWindow.webView.CoreWebView2.Navigate(url);
                                 
                                 // 显示主窗口
                                 if (!mainWindow.IsVisible)
