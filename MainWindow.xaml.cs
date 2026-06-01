@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -66,6 +66,11 @@ namespace TrayChrome
         private bool isAnimationEnabled = true; // 动画启用状态
         private bool hasSavedPosition = false; // 是否存在保存的位置
         private AdBlocker adBlocker = new AdBlocker(); // 广告拦截器
+        private readonly List<Button> overflowButtons = new List<Button>();
+        private const double MinToolbarReserveWidth = 190.0;
+        private Slider? opacitySlider;
+        private TextBlock? opacityValueText;
+        private bool isUpdatingOpacityUi = false;
         
         // 历史记录追踪
         private List<HistoryItem> historyList = new List<HistoryItem>();
@@ -158,6 +163,14 @@ namespace TrayChrome
             StartMemoryCleanupTimer();
             
             // 应用UI外观已经在上面调用过了，包含了代理环外观的更新
+
+            this.SizeChanged += (_, __) => UpdateToolbarOverflow();
+            this.Loaded += (_, __) =>
+            {
+                InitializeOpacityMenu();
+                InitializeMoreMenu();
+                UpdateToolbarOverflow();
+            };
         }
 
         private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -235,6 +248,7 @@ namespace TrayChrome
                 
                 // 应用缩放设置
                 webView.ZoomFactor = currentZoomFactor;
+                webView.DefaultBackgroundColor = System.Drawing.Color.Transparent;
                 
                 // 初始化时设置浏览器外观模式
                 ApplyBrowserAppearance(isDarkMode);
@@ -318,6 +332,7 @@ namespace TrayChrome
 
                 // 确保每个页面都使用相同的缩放比例
                 webView.ZoomFactor = currentZoomFactor;
+                ApplyWebContentOpacity(this.Opacity);
                 
                 // 外观模式已在初始化时设置
                 
@@ -657,7 +672,8 @@ namespace TrayChrome
                  var buttons = new[]
                  {
                      CloseButton, BackButton, ForwardButton, RefreshButton, BookmarkButton,
-                     DarkModeButton, PopupButton, UAButton, TopMostButton, ZoomOutButton, ZoomInButton, ProxyButton, SaveLayoutButton
+                     DarkModeButton, PopupButton, UAButton, TopMostButton, ZoomOutButton, ZoomInButton,
+                     OpacityButton, ProxyButton, SaveLayoutButton, MoreButton
                  };
                  
                  // 创建新的样式，根据暗色/亮色模式设置不同的悬停和按下颜色
@@ -739,6 +755,191 @@ namespace TrayChrome
                  TopMostButton.ToolTip = isTopMost ? "取消置顶" : "窗口置顶";
              }
          }
+
+        private void UpdateToolbarOverflow()
+        {
+            if (ToolbarButtonsGrid == null || MoreButton == null) return;
+
+            var managedButtons = new List<Button>
+            {
+                BackButton, ForwardButton, RefreshButton, BookmarkButton, DarkModeButton, PopupButton,
+                UAButton, ProxyButton, TopMostButton, ZoomOutButton, ZoomInButton
+            };
+
+            overflowButtons.Clear();
+            double available = this.ActualWidth - MinToolbarReserveWidth - 30.0;
+            int maxVisible = Math.Max(0, Math.Min(managedButtons.Count, (int)(available / 30.0)));
+
+            for (int i = 0; i < managedButtons.Count; i++)
+            {
+                var button = managedButtons[i];
+                if (button == null) continue;
+
+                bool shouldShow = i < maxVisible;
+                button.Visibility = shouldShow ? Visibility.Visible : Visibility.Collapsed;
+                if (!shouldShow)
+                    overflowButtons.Add(button);
+            }
+
+            if (OpacityButton != null)
+                OpacityButton.Visibility = Visibility.Visible;
+
+            MoreButton.Visibility = overflowButtons.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void InitializeMoreMenu()
+        {
+            if (MoreButton == null) return;
+            MoreButton.ContextMenu ??= new ContextMenu();
+        }
+
+        private void MoreButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (MoreButton?.ContextMenu == null) return;
+
+            var menu = MoreButton.ContextMenu;
+            menu.Items.Clear();
+
+            foreach (var button in overflowButtons)
+            {
+                var sourceButton = button;
+                var header = sourceButton.ToolTip?.ToString();
+                if (string.IsNullOrWhiteSpace(header))
+                    header = sourceButton.Content?.ToString() ?? "操作";
+
+                var item = new MenuItem { Header = header };
+                item.Click += (_, __) => sourceButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                menu.Items.Add(item);
+            }
+
+            menu.PlacementTarget = MoreButton;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Top;
+            menu.IsOpen = true;
+        }
+
+        private void InitializeOpacityMenu()
+        {
+            if (OpacityButton == null) return;
+
+            var menu = new ContextMenu();
+            var panel = new StackPanel
+            {
+                Orientation = Orientation.Vertical,
+                Margin = new Thickness(8, 6, 8, 6),
+                Width = 170
+            };
+
+            opacityValueText = new TextBlock
+            {
+                Text = "透明度: 100%",
+                Margin = new Thickness(0, 0, 0, 6)
+            };
+
+            opacitySlider = new Slider
+            {
+                Minimum = 0.05,
+                Maximum = 1.0,
+                SmallChange = 0.01,
+                LargeChange = 0.05,
+                TickFrequency = 0.05,
+                IsSnapToTickEnabled = false,
+                Value = Math.Max(0.05, Math.Min(1.0, this.Opacity))
+            };
+            opacitySlider.ValueChanged += OpacitySlider_ValueChanged;
+
+            panel.Children.Add(opacityValueText);
+            panel.Children.Add(opacitySlider);
+
+            var sliderItem = new MenuItem
+            {
+                StaysOpenOnClick = true,
+                Header = panel
+            };
+            menu.Items.Add(sliderItem);
+
+            var resetItem = new MenuItem { Header = "恢复 100%" };
+            resetItem.Click += (_, __) => SetDomainOpacity(1.0);
+            menu.Items.Add(resetItem);
+
+            OpacityButton.ContextMenu = menu;
+        }
+
+        private void OpacityButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (OpacityButton?.ContextMenu == null)
+                InitializeOpacityMenu();
+
+            if (OpacityButton?.ContextMenu != null)
+            {
+                if (opacitySlider != null)
+                {
+                    isUpdatingOpacityUi = true;
+                    opacitySlider.Value = Math.Max(0.05, Math.Min(1.0, this.Opacity));
+                    UpdateOpacityValueText(opacitySlider.Value);
+                    isUpdatingOpacityUi = false;
+                }
+
+                OpacityButton.ContextMenu.PlacementTarget = OpacityButton;
+                OpacityButton.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Top;
+                OpacityButton.ContextMenu.IsOpen = true;
+            }
+        }
+
+        private void OpacitySlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+        {
+            UpdateOpacityValueText(e.NewValue);
+            if (isUpdatingOpacityUi) return;
+            SetDomainOpacity(e.NewValue);
+        }
+
+        private void UpdateOpacityValueText(double opacity)
+        {
+            if (opacityValueText != null)
+                opacityValueText.Text = $"透明度: {opacity:P0}";
+        }
+
+        private void SetDomainOpacity(double opacity)
+        {
+            var activeDomain = ExtractDomain(webView?.CoreWebView2?.Source ?? webView?.Source?.ToString() ?? "");
+            if (!string.IsNullOrEmpty(activeDomain))
+                currentDomain = activeDomain;
+
+            ApplyDomainOpacity(opacity);
+            SaveCurrentDomainSettings();
+        }
+
+        private void ApplyDomainOpacity(double opacity)
+        {
+            opacity = Math.Max(0.05, Math.Min(1.0, opacity));
+            this.Opacity = opacity;
+            ApplyWebContentOpacity(opacity);
+        }
+
+        private async void ApplyWebContentOpacity(double opacity)
+        {
+            try
+            {
+                if (webView?.CoreWebView2 == null) return;
+
+                opacity = Math.Max(0.05, Math.Min(1.0, opacity));
+                var opacityText = opacity.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
+                string script = $@"
+(() => {{
+  const opacity = '{opacityText}';
+  let style = document.getElementById('__tray_chrome_domain_opacity');
+  if (!style) {{
+    style = document.createElement('style');
+    style.id = '__tray_chrome_domain_opacity';
+    document.documentElement.appendChild(style);
+  }}
+  style.textContent =
+    'html, body {{ background: transparent !important; }}' +
+    'html {{ opacity: ' + opacity + ' !important; }}';
+}})();";
+                await webView.CoreWebView2.ExecuteScriptAsync(script);
+            }
+            catch { }
+        }
 
         private void BackButton_Click(object sender, RoutedEventArgs e)
         {
@@ -1657,7 +1858,8 @@ namespace TrayChrome
                 Height = this.Height,
                 Left = this.Left,
                 Top = this.Top,
-                ZoomFactor = currentZoomFactor
+                ZoomFactor = currentZoomFactor,
+                Opacity = this.Opacity
             };
 
             if (domainSettings.TryGetValue(domain, out var existing) && IsSameDomainSettings(existing, newSettings))
@@ -1671,7 +1873,7 @@ namespace TrayChrome
             SaveDomainSettingsFile();
             currentDomain = domain;
 
-            MessageBox.Show($"已保存 {domain} 的窗口配置\n宽:{this.Width:F0} 高:{this.Height:F0} 缩放:{currentZoomFactor:F1}", "保存成功", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show($"已保存 {domain} 的窗口配置\n宽:{this.Width:F0} 高:{this.Height:F0} 缩放:{currentZoomFactor:F1} 透明度:{this.Opacity:P0}", "保存成功", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         
         // ResizeButton的窗口调整大小功能
@@ -2311,7 +2513,8 @@ namespace TrayChrome
                 Height = this.Height,
                 Left = this.Left,
                 Top = this.Top,
-                ZoomFactor = currentZoomFactor
+                ZoomFactor = currentZoomFactor,
+                Opacity = this.Opacity
             };
 
             if (domainSettings.TryGetValue(currentDomain, out var existing) && IsSameDomainSettings(existing, newSettings))
@@ -2328,7 +2531,8 @@ namespace TrayChrome
                 && Math.Abs(a.Height - b.Height) < epsilon
                 && Math.Abs(a.Left - b.Left) < epsilon
                 && Math.Abs(a.Top - b.Top) < epsilon
-                && Math.Abs(a.ZoomFactor - b.ZoomFactor) < epsilon;
+                && Math.Abs(a.ZoomFactor - b.ZoomFactor) < epsilon
+                && Math.Abs(a.Opacity - b.Opacity) < epsilon;
         }
 
         public void ApplyDomainSettings(string url)
@@ -2352,6 +2556,11 @@ namespace TrayChrome
                 currentZoomFactor = ds.ZoomFactor;
                 if (webView?.CoreWebView2 != null)
                     webView.ZoomFactor = currentZoomFactor;
+                ApplyDomainOpacity(ds.Opacity <= 0 ? 1.0 : ds.Opacity);
+            }
+            else
+            {
+                ApplyDomainOpacity(1.0);
             }
         }
 
@@ -2376,6 +2585,11 @@ namespace TrayChrome
                 currentZoomFactor = ds.ZoomFactor;
                 if (webView?.CoreWebView2 != null)
                     webView.ZoomFactor = currentZoomFactor;
+                ApplyDomainOpacity(ds.Opacity <= 0 ? 1.0 : ds.Opacity);
+            }
+            else
+            {
+                ApplyDomainOpacity(1.0);
             }
         }
     }
@@ -2387,6 +2601,7 @@ namespace TrayChrome
         public double Left { get; set; }
         public double Top { get; set; }
         public double ZoomFactor { get; set; } = 1.0;
+        public double Opacity { get; set; } = 1.0;
     }
 
     public class Bookmark

@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading.Tasks;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
@@ -7,10 +8,20 @@ namespace TrayChrome
 {
     public static class WebView2EnvironmentHelper
     {
+        private static string GetStableUserDataFolder()
+        {
+            var baseDir = Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory,
+                "WebView2UserData");
+            Directory.CreateDirectory(baseDir);
+            return baseDir;
+        }
+
         public static async Task EnsureCoreWebView2WithFallbackAsync(WebView2 webView, AppSettings appSettings)
         {
             var options = new CoreWebView2EnvironmentOptions();
             var optionsType = typeof(CoreWebView2EnvironmentOptions);
+            var userDataFolder = GetStableUserDataFolder();
             
             // 设置 FluentOverlay 滚动条
             try
@@ -60,7 +71,7 @@ namespace TrayChrome
             
             try 
             {
-                var environment = await CoreWebView2Environment.CreateAsync(null, null, options);
+                var environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder, options);
                 await webView.EnsureCoreWebView2Async(environment);
             }
             catch (Exception ex) when (ex.HResult == unchecked((int)0x8007139F) || ex.Message.Contains("0x8007139F") || ex.Message.Contains("组或资源的状态不是执行请求操作的正确状态"))
@@ -98,7 +109,7 @@ namespace TrayChrome
                         }
                     }
                     
-                    var fallbackEnvironment = await CoreWebView2Environment.CreateAsync(null, null, fallbackOptions);
+                    var fallbackEnvironment = await CoreWebView2Environment.CreateAsync(null, userDataFolder, fallbackOptions);
                     await webView.EnsureCoreWebView2Async(fallbackEnvironment);
                     
                     System.Diagnostics.Debug.WriteLine("已成功连接到现有的 WebView2 实例。注意：由于实例共享，新窗口将使用现有进程的代理配置。");
