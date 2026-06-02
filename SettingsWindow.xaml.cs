@@ -31,6 +31,7 @@ namespace TrayChrome
         public bool IsSuperMinimalMode { get; set; }
         public bool IsAnimationEnabled { get; set; }
         public bool IsDarkMode { get; set; }
+        public bool IsShadowEnabled { get; set; }
         public double ZoomFactor { get; set; }
         public bool IsMobileUA { get; set; }
         public bool IsAdBlockEnabled { get; set; }
@@ -66,6 +67,7 @@ namespace TrayChrome
                 WindowLeft = settings.WindowLeft,
                 WindowTop = settings.WindowTop,
                 IsDarkMode = settings.IsDarkMode,
+                IsShadowEnabled = settings.IsShadowEnabled,
                 IsTopMost = settings.IsTopMost,
                 IsSuperMinimalMode = settings.IsSuperMinimalMode,
                 IsAnimationEnabled = settings.IsAnimationEnabled,
@@ -98,6 +100,7 @@ namespace TrayChrome
             IsSuperMinimalMode = currentSettings.IsSuperMinimalMode;
             IsAnimationEnabled = currentSettings.IsAnimationEnabled;
             IsDarkMode = currentSettings.IsDarkMode;
+            IsShadowEnabled = currentSettings.IsShadowEnabled;
             ZoomFactor = currentSettings.ZoomFactor;
             IsMobileUA = currentSettings.IsMobileUA;
             IsAdBlockEnabled = currentSettings.IsAdBlockEnabled;
@@ -135,6 +138,10 @@ namespace TrayChrome
             DarkModeCheckBox.IsChecked = IsDarkMode;
             DarkModeCheckBox.Checked += (s, e) => IsDarkMode = true;
             DarkModeCheckBox.Unchecked += (s, e) => IsDarkMode = false;
+            
+            ShadowCheckBox.IsChecked = IsShadowEnabled;
+            ShadowCheckBox.Checked += (s, e) => IsShadowEnabled = true;
+            ShadowCheckBox.Unchecked += (s, e) => IsShadowEnabled = false;
             
             // 缩放
             ZoomSlider.Value = ZoomFactor;
@@ -232,6 +239,7 @@ namespace TrayChrome
                 currentSettings.IsSuperMinimalMode = IsSuperMinimalMode;
                 currentSettings.IsAnimationEnabled = IsAnimationEnabled;
                 currentSettings.IsDarkMode = IsDarkMode;
+                currentSettings.IsShadowEnabled = IsShadowEnabled;
                 currentSettings.ZoomFactor = ZoomFactor;
                 currentSettings.IsMobileUA = IsMobileUA;
                 currentSettings.IsAdBlockEnabled = IsAdBlockEnabled;
@@ -311,6 +319,7 @@ namespace TrayChrome
             target.WindowLeft = source.WindowLeft;
             target.WindowTop = source.WindowTop;
             target.IsDarkMode = source.IsDarkMode;
+            target.IsShadowEnabled = source.IsShadowEnabled;
             target.IsTopMost = source.IsTopMost;
             target.IsSuperMinimalMode = source.IsSuperMinimalMode;
             target.IsAnimationEnabled = source.IsAnimationEnabled;

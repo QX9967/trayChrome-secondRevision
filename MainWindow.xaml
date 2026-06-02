@@ -51,9 +51,9 @@
     </Window.Resources>
     
     <!-- 澶栧眰瀹瑰櫒锛岀敤浜庡垱寤洪槾褰辨晥鏋?-->
-    <Border Background="#2D2D30" CornerRadius="8" Margin="10">
+    <Border x:Name="ShadowBorder" Background="#2D2D30" CornerRadius="8" Margin="10">
         <Border.Effect>
-            <DropShadowEffect Color="Black" Direction="0" ShadowDepth="0" Opacity="0.6" BlurRadius="15"/>
+            <DropShadowEffect x:Name="ShadowEffect" Color="Black" Direction="0" ShadowDepth="0" Opacity="0.6" BlurRadius="15"/>
         </Border.Effect>
         
         <Grid>

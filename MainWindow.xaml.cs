@@ -1511,6 +1511,9 @@ namespace TrayChrome
                 isSuperMinimalMode = appSettings.IsSuperMinimalMode;
                 isAnimationEnabled = appSettings.IsAnimationEnabled;
                 
+                // 应用阴影设置
+                ApplyShadowSettings(appSettings.IsShadowEnabled);
+                
                 // 应用UI外观（需要在WebView初始化后调用，所以延迟到InitializeWebView之后）
                 
                 // 广告拦截设置
@@ -2284,6 +2287,9 @@ namespace TrayChrome
                 // 应用动画
                 isAnimationEnabled = settings.IsAnimationEnabled;
                 
+                // 应用阴影
+                ApplyShadowSettings(settings.IsShadowEnabled);
+                
                 // 应用广告拦截
                 adBlocker.IsEnabled = settings.IsAdBlockEnabled;
                 if (settings.AdBlockRules != null && settings.AdBlockRules.Count > 0)
@@ -2313,6 +2319,32 @@ namespace TrayChrome
             catch (Exception ex)
             {
                 MessageBox.Show($"应用设置失败: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+        
+        private void ApplyShadowSettings(bool isShadowEnabled)
+        {
+            try
+            {
+                if (ShadowBorder != null && ShadowEffect != null)
+                {
+                    if (isShadowEnabled)
+                    {
+                        ShadowEffect.Opacity = 0.6;
+                        ShadowEffect.BlurRadius = 15;
+                        ShadowBorder.Margin = new Thickness(10);
+                    }
+                    else
+                    {
+                        ShadowEffect.Opacity = 0;
+                        ShadowEffect.BlurRadius = 0;
+                        ShadowBorder.Margin = new Thickness(0);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"应用阴影设置失败: {ex.Message}");
             }
         }
 
@@ -2619,6 +2651,7 @@ namespace TrayChrome
         public double? WindowLeft { get; set; }
         public double? WindowTop { get; set; }
         public bool IsDarkMode { get; set; } = false;
+        public bool IsShadowEnabled { get; set; } = true;
         public bool IsTopMost { get; set; } = true;
         public bool IsSuperMinimalMode { get; set; } = false;
         public bool IsAnimationEnabled { get; set; } = true;
