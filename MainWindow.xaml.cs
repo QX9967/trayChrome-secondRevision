@@ -329,6 +329,7 @@ namespace TrayChrome
                 {
                     UpdateHistory(webView.Source.ToString(), webView.CoreWebView2.DocumentTitle);
                     OnDomainChanged(webView.Source.ToString());
+                    _ = ReinjectSavedScriptsForCurrentPageAsync();
                 }
 
                 // 确保每个页面都使用相同的缩放比例
@@ -1914,37 +1915,29 @@ namespace TrayChrome
                 int successCount = 0;
                 int failCount = 0;
                 int addedCount = 0;
+                var failedScripts = new List<string>();
 
                 appSettings.ScriptFiles ??= new List<string>();
 
                 foreach (var filePath in dialog.FileNames)
                 {
-                    try
+                    var execution = await ExecuteJavaScriptFileAsync(filePath);
+                    if (execution.Success)
                     {
-                        if (!File.Exists(filePath))
-                        {
-                            failCount++;
-                            Debug.WriteLine($"注入脚本失败，文件不存在: {filePath}");
-                            continue;
-                        }
+                        successCount++;
 
-                        string script = File.ReadAllText(filePath);
-                        if (!string.IsNullOrWhiteSpace(script))
+                        if (!appSettings.ScriptFiles.Any(path => string.Equals(path, filePath, StringComparison.OrdinalIgnoreCase)))
                         {
-                            await webView.CoreWebView2.ExecuteScriptAsync(script);
-                            successCount++;
-
-                            if (!appSettings.ScriptFiles.Any(path => string.Equals(path, filePath, StringComparison.OrdinalIgnoreCase)))
-                            {
-                                appSettings.ScriptFiles.Add(filePath);
-                                addedCount++;
-                            }
+                            appSettings.ScriptFiles.Add(filePath);
+                            addedCount++;
                         }
                     }
-                    catch (Exception ex)
+                    else
                     {
                         failCount++;
-                        Debug.WriteLine($"注入脚本失败 {Path.GetFileName(filePath)}: {ex.Message}");
+                        string failedMessage = $"{Path.GetFileName(filePath)}: {execution.ErrorMessage}";
+                        failedScripts.Add(failedMessage);
+                        Debug.WriteLine($"注入脚本失败 {failedMessage}");
                     }
                 }
 
@@ -1963,6 +1956,15 @@ namespace TrayChrome
                       (failCount > 0 ? $"，{failCount} 个失败" : "")
                     : "所有脚本注入失败";
 
+                if (failedScripts.Count > 0)
+                {
+                    message += "\n\n失败详情：\n" + string.Join("\n", failedScripts.Take(3));
+                    if (failedScripts.Count > 3)
+                    {
+                        message += $"\n... 另外还有 {failedScripts.Count - 3} 个失败";
+                    }
+                }
+
                 MessageBox.Show(message, "脚本注入", MessageBoxButton.OK,
                     successCount > 0 ? MessageBoxImage.Information : MessageBoxImage.Warning);
             }
@@ -1971,7 +1973,182 @@ namespace TrayChrome
                 MessageBox.Show($"脚本注入出错: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
-        
+
+        private async Task ReinjectSavedScriptsForCurrentPageAsync()
+        {
+            try
+            {
+                if (webView?.CoreWebView2 == null)
+                {
+                    return;
+                }
+
+                var scriptFiles = (appSettings.ScriptFiles ?? new List<string>())
+                    .Where(path => !string.IsNullOrWhiteSpace(path))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (scriptFiles.Count == 0)
+                {
+                    return;
+                }
+
+                foreach (var filePath in scriptFiles)
+                {
+                    var execution = await ExecuteJavaScriptFileAsync(filePath);
+                    if (!execution.Success)
+                    {
+                        Debug.WriteLine($"页面自动重注入失败 {Path.GetFileName(filePath)}: {execution.ErrorMessage}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"页面自动重注入异常: {ex.Message}");
+            }
+        }
+
+        private async Task<ScriptExecutionOutcome> ExecuteJavaScriptFileAsync(string filePath)
+        {
+            try
+            {
+                if (webView?.CoreWebView2 == null)
+                {
+                    return new ScriptExecutionOutcome(false, "浏览器未初始化");
+                }
+
+                if (!File.Exists(filePath))
+                {
+                    return new ScriptExecutionOutcome(false, "文件不存在");
+                }
+
+                string script = File.ReadAllText(filePath);
+                if (string.IsNullOrWhiteSpace(script))
+                {
+                    return new ScriptExecutionOutcome(false, "脚本内容为空");
+                }
+
+                string wrappedScript = BuildScriptExecutionWrapper(script);
+                string rawResult = await webView.CoreWebView2.ExecuteScriptAsync(wrappedScript);
+                var result = JsonSerializer.Deserialize<ScriptExecutionResult>(rawResult);
+
+                if (result?.Ok == true)
+                {
+                    return new ScriptExecutionOutcome(true, string.Empty);
+                }
+
+                string errorMessage = string.IsNullOrWhiteSpace(result?.Error)
+                    ? "脚本没有生效，可能是运行时报错，或脚本依赖页面加载事件/油猴 API"
+                    : result.Error;
+                return new ScriptExecutionOutcome(false, errorMessage);
+            }
+            catch (Exception ex)
+            {
+                return new ScriptExecutionOutcome(false, ex.Message);
+            }
+        }
+
+        private static string BuildScriptExecutionWrapper(string script)
+        {
+            string scriptLiteral = JsonSerializer.Serialize(script);
+            return $@"(async () => {{
+    const source = {scriptLiteral};
+    const AsyncFunction = Object.getPrototypeOf(async function() {{ }}).constructor;
+    const originalAddEventListener = window.addEventListener.bind(window);
+
+    window.addEventListener = function(type, listener, options) {{
+        if ((type === 'DOMContentLoaded' || type === 'load') && document.readyState !== 'loading') {{
+            try {{
+                setTimeout(() => listener.call(window, new Event(type)), 0);
+            }} catch (error) {{
+                console.error(error);
+            }}
+        }}
+
+        return originalAddEventListener(type, listener, options);
+    }};
+
+    try {{
+        const runner = new AsyncFunction(source);
+        const value = await runner();
+        return {{ ok: true, value: value ?? null }};
+    }} catch (error) {{
+        return {{ ok: false, error: String(error && (error.stack || error.message) || error) }};
+    }} finally {{
+        window.addEventListener = originalAddEventListener;
+    }}
+}})();";
+        }
+
+        private void NormalizeScriptEntries()
+        {
+            appSettings.ScriptEntries ??= new List<ScriptEntry>();
+            appSettings.ScriptFiles ??= new List<string>();
+
+            foreach (var filePath in appSettings.ScriptFiles)
+            {
+                if (string.IsNullOrWhiteSpace(filePath))
+                {
+                    continue;
+                }
+
+                if (!appSettings.ScriptEntries.Any(entry => string.Equals(entry.FilePath, filePath, StringComparison.OrdinalIgnoreCase)))
+                {
+                    appSettings.ScriptEntries.Add(new ScriptEntry
+                    {
+                        FilePath = filePath,
+                        Domain = string.Empty
+                    });
+                }
+            }
+
+            appSettings.ScriptEntries = appSettings.ScriptEntries
+                .Where(entry => !string.IsNullOrWhiteSpace(entry.FilePath))
+                .GroupBy(entry => $"{entry.FilePath}|{entry.Domain}", StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .ToList();
+
+            appSettings.ScriptFiles = appSettings.ScriptEntries
+                .Select(entry => entry.FilePath)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private List<ScriptEntry> GetScriptEntriesForDomain(string currentDomain)
+        {
+            NormalizeScriptEntries();
+            return appSettings.ScriptEntries
+                .Where(entry => IsScriptEntryMatch(entry, currentDomain))
+                .ToList();
+        }
+
+        private static bool IsScriptEntryMatch(ScriptEntry entry, string currentDomain)
+        {
+            if (string.IsNullOrWhiteSpace(entry.FilePath))
+            {
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(entry.Domain))
+            {
+                return true;
+            }
+
+            if (string.IsNullOrWhiteSpace(currentDomain))
+            {
+                return false;
+            }
+
+            return currentDomain.Equals(entry.Domain, StringComparison.OrdinalIgnoreCase)
+                || currentDomain.EndsWith("." + entry.Domain, StringComparison.OrdinalIgnoreCase);
+        }
+
+        public string GetCurrentDomain()
+        {
+            string currentUrl = webView?.CoreWebView2?.Source ?? webView?.Source?.ToString() ?? string.Empty;
+            return ExtractDomain(currentUrl);
+        }
+         
         // ResizeButton的窗口调整大小功能
         private void ResizeButton_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
@@ -2766,6 +2943,7 @@ namespace TrayChrome
         // 启动设置
         public bool AutoZoomOutOnStartup { get; set; } = true;
         public List<string> ScriptFiles { get; set; } = new List<string>();
+        public List<ScriptEntry> ScriptEntries { get; set; } = new List<ScriptEntry>();
         
         // 内部使用的快捷键解析属性
         public uint HotKeyModifiers 
@@ -2806,5 +2984,29 @@ namespace TrayChrome
                 return 0x58; // 默认X键
             }
         }
+    }
+
+    public sealed class ScriptExecutionResult
+    {
+        public bool Ok { get; set; }
+        public string Error { get; set; } = string.Empty;
+    }
+
+    public sealed class ScriptEntry
+    {
+        public string FilePath { get; set; } = string.Empty;
+        public string Domain { get; set; } = string.Empty;
+    }
+
+    public readonly struct ScriptExecutionOutcome
+    {
+        public ScriptExecutionOutcome(bool success, string errorMessage)
+        {
+            Success = success;
+            ErrorMessage = errorMessage;
+        }
+
+        public bool Success { get; }
+        public string ErrorMessage { get; }
     }
 }

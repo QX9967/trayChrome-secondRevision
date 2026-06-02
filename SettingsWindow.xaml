@@ -299,7 +299,10 @@
                                         <ColumnDefinition Width="180"/>
                                         <ColumnDefinition Width="*"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="{Binding FileName}" FontWeight="Medium" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                    <StackPanel Grid.Column="0" Orientation="Vertical">
+                                        <TextBlock Text="{Binding FileName}" FontWeight="Medium" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding DomainDisplay}" Foreground="Gray" FontSize="10" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                    </StackPanel>
                                     <TextBlock Grid.Column="1" Text="{Binding FilePath}" Foreground="Gray" FontSize="11" TextTrimming="CharacterEllipsis" Margin="10,0,0,0" VerticalAlignment="Center"/>
                                 </Grid>
                             </DataTemplate>

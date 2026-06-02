@@ -44,6 +44,7 @@ namespace TrayChrome
         public string ProxyServer { get; set; } = string.Empty;
         public bool AutoZoomOutOnStartup { get; set; }
         public List<string> ScriptFiles { get; set; } = new List<string>();
+        public List<ScriptEntry> ScriptEntries { get; set; } = new List<ScriptEntry>();
 
         public SettingsWindow(AppSettings settings, MainWindow? mainWindow = null, App? app = null)
         {
@@ -81,7 +82,8 @@ namespace TrayChrome
                 IsProxyEnabled = settings.IsProxyEnabled,
                 ProxyServer = settings.ProxyServer,
                 AutoZoomOutOnStartup = settings.AutoZoomOutOnStartup,
-                ScriptFiles = new List<string>(settings.ScriptFiles ?? new List<string>())
+                ScriptFiles = new List<string>(settings.ScriptFiles ?? new List<string>()),
+                ScriptEntries = new List<ScriptEntry>(settings.ScriptEntries ?? new List<ScriptEntry>())
             };
             
             // 加载当前设置到UI
@@ -116,6 +118,8 @@ namespace TrayChrome
             ProxyServer = currentSettings.ProxyServer;
             AutoZoomOutOnStartup = currentSettings.AutoZoomOutOnStartup;
             ScriptFiles = new List<string>(currentSettings.ScriptFiles ?? new List<string>());
+            ScriptEntries = new List<ScriptEntry>(currentSettings.ScriptEntries ?? new List<ScriptEntry>());
+            NormalizeScriptEntries();
         }
 
         private void SetupDataBinding()
@@ -261,9 +265,14 @@ namespace TrayChrome
                 currentSettings.IsProxyEnabled = IsProxyEnabled;
                 currentSettings.ProxyServer = ProxyServer;
                 currentSettings.AutoZoomOutOnStartup = AutoZoomOutOnStartup;
-                currentSettings.ScriptFiles = scriptItems
+                currentSettings.ScriptEntries = scriptItems
+                    .Select(item => new ScriptEntry { FilePath = item.FilePath, Domain = item.Domain })
+                    .Where(item => !string.IsNullOrWhiteSpace(item.FilePath))
+                    .GroupBy(item => $"{item.FilePath}|{item.Domain}", StringComparer.OrdinalIgnoreCase)
+                    .Select(group => group.First())
+                    .ToList();
+                currentSettings.ScriptFiles = currentSettings.ScriptEntries
                     .Select(item => item.FilePath)
-                    .Where(path => !string.IsNullOrWhiteSpace(path))
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();
                 
@@ -342,17 +351,19 @@ namespace TrayChrome
             target.ProxyServer = source.ProxyServer;
             target.AutoZoomOutOnStartup = source.AutoZoomOutOnStartup;
             target.ScriptFiles = new List<string>(source.ScriptFiles ?? new List<string>());
+            target.ScriptEntries = new List<ScriptEntry>(source.ScriptEntries ?? new List<ScriptEntry>());
         }
 
         private void RefreshScriptList()
         {
-            scriptItems = (ScriptFiles ?? new List<string>())
-                .Where(path => !string.IsNullOrWhiteSpace(path))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Select(path => new ScriptItem
+            NormalizeScriptEntries();
+            scriptItems = (ScriptEntries ?? new List<ScriptEntry>())
+                .Where(item => !string.IsNullOrWhiteSpace(item.FilePath))
+                .Select(item => new ScriptItem
                 {
-                    FilePath = path,
-                    FileName = Path.GetFileName(path)
+                    FilePath = item.FilePath,
+                    FileName = Path.GetFileName(item.FilePath),
+                    Domain = item.Domain
                 })
                 .ToList();
 
@@ -377,9 +388,12 @@ namespace TrayChrome
             }
 
             bool changed = false;
+            string currentDomain = mainWindow?.GetCurrentDomain() ?? string.Empty;
             foreach (var filePath in dialog.FileNames)
             {
-                if (scriptItems.Any(item => string.Equals(item.FilePath, filePath, StringComparison.OrdinalIgnoreCase)))
+                if (scriptItems.Any(item =>
+                    string.Equals(item.FilePath, filePath, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(item.Domain, currentDomain, StringComparison.OrdinalIgnoreCase)))
                 {
                     continue;
                 }
@@ -387,7 +401,8 @@ namespace TrayChrome
                 scriptItems.Add(new ScriptItem
                 {
                     FilePath = filePath,
-                    FileName = Path.GetFileName(filePath)
+                    FileName = Path.GetFileName(filePath),
+                    Domain = currentDomain
                 });
                 changed = true;
             }
@@ -397,7 +412,10 @@ namespace TrayChrome
                 return;
             }
 
-            ScriptFiles = scriptItems.Select(item => item.FilePath).ToList();
+            ScriptEntries = scriptItems
+                .Select(item => new ScriptEntry { FilePath = item.FilePath, Domain = item.Domain })
+                .ToList();
+            ScriptFiles = ScriptEntries.Select(item => item.FilePath).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             RefreshScriptList();
         }
 
@@ -414,14 +432,46 @@ namespace TrayChrome
                 return;
             }
 
-            scriptItems.RemoveAll(existing => string.Equals(existing.FilePath, item.FilePath, StringComparison.OrdinalIgnoreCase));
-            ScriptFiles = scriptItems.Select(existing => existing.FilePath).ToList();
+            scriptItems.RemoveAll(existing =>
+                string.Equals(existing.FilePath, item.FilePath, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(existing.Domain, item.Domain, StringComparison.OrdinalIgnoreCase));
+            ScriptEntries = scriptItems
+                .Select(existing => new ScriptEntry { FilePath = existing.FilePath, Domain = existing.Domain })
+                .ToList();
+            ScriptFiles = ScriptEntries.Select(existing => existing.FilePath).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             RefreshScriptList();
         }
 
         private void RefreshScriptButton_Click(object sender, RoutedEventArgs e)
         {
             RefreshScriptList();
+        }
+
+        private void NormalizeScriptEntries()
+        {
+            ScriptEntries ??= new List<ScriptEntry>();
+            ScriptFiles ??= new List<string>();
+
+            foreach (var filePath in ScriptFiles)
+            {
+                if (string.IsNullOrWhiteSpace(filePath))
+                {
+                    continue;
+                }
+
+                if (!ScriptEntries.Any(item => string.Equals(item.FilePath, filePath, StringComparison.OrdinalIgnoreCase)))
+                {
+                    ScriptEntries.Add(new ScriptEntry { FilePath = filePath, Domain = string.Empty });
+                }
+            }
+
+            ScriptEntries = ScriptEntries
+                .Where(item => !string.IsNullOrWhiteSpace(item.FilePath))
+                .GroupBy(item => $"{item.FilePath}|{item.Domain}", StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .ToList();
+
+            ScriptFiles = ScriptEntries.Select(item => item.FilePath).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         }
 
         // 收藏夹管理方法
@@ -747,5 +797,7 @@ namespace TrayChrome
     {
         public string FileName { get; set; } = string.Empty;
         public string FilePath { get; set; } = string.Empty;
+        public string Domain { get; set; } = string.Empty;
+        public string DomainDisplay => string.IsNullOrWhiteSpace(Domain) ? "作用域：全部网站" : $"作用域：{Domain}";
     }
 }
