@@ -16,6 +16,7 @@ namespace TrayChrome
         private MainWindow? mainWindow;
         private App? app;
         private List<Bookmark> bookmarks = new List<Bookmark>();
+        private List<ScriptItem> scriptItems = new List<ScriptItem>();
         private string bookmarksFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "bookmarks.json");
         
         // 收藏夹更新事件
@@ -42,6 +43,7 @@ namespace TrayChrome
         public bool IsProxyEnabled { get; set; }
         public string ProxyServer { get; set; } = string.Empty;
         public bool AutoZoomOutOnStartup { get; set; }
+        public List<string> ScriptFiles { get; set; } = new List<string>();
 
         public SettingsWindow(AppSettings settings, MainWindow? mainWindow = null, App? app = null)
         {
@@ -78,7 +80,8 @@ namespace TrayChrome
                 EnableGlobalHotKey = settings.EnableGlobalHotKey,
                 IsProxyEnabled = settings.IsProxyEnabled,
                 ProxyServer = settings.ProxyServer,
-                AutoZoomOutOnStartup = settings.AutoZoomOutOnStartup
+                AutoZoomOutOnStartup = settings.AutoZoomOutOnStartup,
+                ScriptFiles = new List<string>(settings.ScriptFiles ?? new List<string>())
             };
             
             // 加载当前设置到UI
@@ -90,6 +93,7 @@ namespace TrayChrome
             // 加载收藏夹
             LoadBookmarks();
             RefreshBookmarkList();
+            RefreshScriptList();
         }
 
         private void LoadSettingsToUI()
@@ -111,6 +115,7 @@ namespace TrayChrome
             IsProxyEnabled = currentSettings.IsProxyEnabled;
             ProxyServer = currentSettings.ProxyServer;
             AutoZoomOutOnStartup = currentSettings.AutoZoomOutOnStartup;
+            ScriptFiles = new List<string>(currentSettings.ScriptFiles ?? new List<string>());
         }
 
         private void SetupDataBinding()
@@ -256,6 +261,11 @@ namespace TrayChrome
                 currentSettings.IsProxyEnabled = IsProxyEnabled;
                 currentSettings.ProxyServer = ProxyServer;
                 currentSettings.AutoZoomOutOnStartup = AutoZoomOutOnStartup;
+                currentSettings.ScriptFiles = scriptItems
+                    .Select(item => item.FilePath)
+                    .Where(path => !string.IsNullOrWhiteSpace(path))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
                 
                 // 应用设置到主窗口
                 if (mainWindow != null)
@@ -331,6 +341,87 @@ namespace TrayChrome
             target.IsProxyEnabled = source.IsProxyEnabled;
             target.ProxyServer = source.ProxyServer;
             target.AutoZoomOutOnStartup = source.AutoZoomOutOnStartup;
+            target.ScriptFiles = new List<string>(source.ScriptFiles ?? new List<string>());
+        }
+
+        private void RefreshScriptList()
+        {
+            scriptItems = (ScriptFiles ?? new List<string>())
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(path => new ScriptItem
+                {
+                    FilePath = path,
+                    FileName = Path.GetFileName(path)
+                })
+                .ToList();
+
+            ScriptListBox.ItemsSource = null;
+            ScriptListBox.ItemsSource = scriptItems;
+            ScriptStatusText.Text = $"共 {scriptItems.Count} 个脚本";
+        }
+
+        private void AddScriptButton_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new OpenFileDialog
+            {
+                Title = "选择 JavaScript 脚本文件",
+                Filter = "JavaScript 文件 (*.js)|*.js|所有文件 (*.*)|*.*",
+                DefaultExt = ".js",
+                Multiselect = true
+            };
+
+            if (dialog.ShowDialog() != true)
+            {
+                return;
+            }
+
+            bool changed = false;
+            foreach (var filePath in dialog.FileNames)
+            {
+                if (scriptItems.Any(item => string.Equals(item.FilePath, filePath, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                scriptItems.Add(new ScriptItem
+                {
+                    FilePath = filePath,
+                    FileName = Path.GetFileName(filePath)
+                });
+                changed = true;
+            }
+
+            if (!changed)
+            {
+                return;
+            }
+
+            ScriptFiles = scriptItems.Select(item => item.FilePath).ToList();
+            RefreshScriptList();
+        }
+
+        private void DeleteScriptButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (ScriptListBox.SelectedItem is not ScriptItem item)
+            {
+                MessageBox.Show("请先选择要删除的脚本。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            if (MessageBox.Show($"确定删除脚本 {item.FileName} 吗？", "确认删除", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            scriptItems.RemoveAll(existing => string.Equals(existing.FilePath, item.FilePath, StringComparison.OrdinalIgnoreCase));
+            ScriptFiles = scriptItems.Select(existing => existing.FilePath).ToList();
+            RefreshScriptList();
+        }
+
+        private void RefreshScriptButton_Click(object sender, RoutedEventArgs e)
+        {
+            RefreshScriptList();
         }
 
         // 收藏夹管理方法
@@ -651,5 +742,10 @@ namespace TrayChrome
             }
         }
     }
-}
 
+    public class ScriptItem
+    {
+        public string FileName { get; set; } = string.Empty;
+        public string FilePath { get; set; } = string.Empty;
+    }
+}

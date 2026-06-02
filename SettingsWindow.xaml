@@ -276,6 +276,39 @@
                     <TextBlock Grid.Row="2" Name="BookmarkStatusText" Margin="0,5,0,0" Foreground="Gray" FontSize="10"/>
                 </Grid>
             </TabItem>
+
+            <TabItem Header="JS 脚本">
+                <Grid Margin="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,5">
+                        <Button Name="AddScriptButton" Content="添加脚本" Click="AddScriptButton_Click" Width="80" Padding="0,3"/>
+                        <Button Name="DeleteScriptButton" Content="删除" Click="DeleteScriptButton_Click" Width="70" Padding="0,3"/>
+                        <Button Name="RefreshScriptButton" Content="刷新" Click="RefreshScriptButton_Click" Width="70" Padding="0,3"/>
+                    </StackPanel>
+
+                    <ListBox Grid.Row="1" Name="ScriptListBox" SelectionMode="Single">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="180"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{Binding FileName}" FontWeight="Medium" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding FilePath}" Foreground="Gray" FontSize="11" TextTrimming="CharacterEllipsis" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <TextBlock Grid.Row="2" Name="ScriptStatusText" Margin="0,5,0,0" Foreground="Gray" FontSize="10"/>
+                </Grid>
+            </TabItem>
         </TabControl>
         
         <!-- 底部按钮 -->
@@ -287,4 +320,3 @@
         </Border>
     </Grid>
 </Window>
-

@@ -120,6 +120,7 @@
                         <ColumnDefinition Width="30"/>
                         <ColumnDefinition Width="30"/>
                         <ColumnDefinition Width="30"/>
+                        <ColumnDefinition Width="30"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
                     
@@ -210,8 +211,18 @@
                     <Button Grid.Column="11" Name="ZoomInButton" Content="+" 
                             Style="{StaticResource ToolbarButtonStyle}" Click="ZoomIn_Click"
                             ToolTip="放大"/>
+                    <!-- 脚本注入按钮 -->
+                    <Button Grid.Column="12" Name="ScriptInjectButton" Content="JS"
+                            Style="{StaticResource ToolbarButtonStyle}"
+                            FontSize="11"
+                            Foreground="White"
+                            HorizontalContentAlignment="Center"
+                            VerticalContentAlignment="Center"
+                            Padding="0"
+                            Background="Transparent"
+                            Click="ScriptInjectButton_Click"
+                            ToolTip="注入 JavaScript 脚本"/>
                 </Grid>
-                
                 <!-- 淇濆瓨绐楀彛閰嶇疆鎸夐挳 -->
                 <Button Name="SaveLayoutButton" Content="&#xE105;"
                         HorizontalAlignment="Right" VerticalAlignment="Center"

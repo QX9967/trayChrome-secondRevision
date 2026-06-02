@@ -71,6 +71,7 @@ namespace TrayChrome
         private Slider? opacitySlider;
         private TextBlock? opacityValueText;
         private bool isUpdatingOpacityUi = false;
+        private const double ToolbarButtonWidth = 30.0;
         
         // 历史记录追踪
         private List<HistoryItem> historyList = new List<HistoryItem>();
@@ -673,8 +674,9 @@ namespace TrayChrome
                  {
                      CloseButton, BackButton, ForwardButton, RefreshButton, BookmarkButton,
                      DarkModeButton, PopupButton, UAButton, TopMostButton, ZoomOutButton, ZoomInButton,
+                     ScriptInjectButton,
                      OpacityButton, ProxyButton, SaveLayoutButton, MoreButton
-                 };
+                  };
                  
                  // 创建新的样式，根据暗色/亮色模式设置不同的悬停和按下颜色
                  var hoverBackground = darkMode 
@@ -763,12 +765,12 @@ namespace TrayChrome
             var managedButtons = new List<Button>
             {
                 BackButton, ForwardButton, RefreshButton, BookmarkButton, DarkModeButton, PopupButton,
-                UAButton, ProxyButton, TopMostButton, ZoomOutButton, ZoomInButton
+                UAButton, ProxyButton, TopMostButton, ZoomOutButton, ZoomInButton, ScriptInjectButton
             };
 
             overflowButtons.Clear();
-            double available = this.ActualWidth - MinToolbarReserveWidth - 30.0;
-            int maxVisible = Math.Max(0, Math.Min(managedButtons.Count, (int)(available / 30.0)));
+            double available = this.ActualWidth - MinToolbarReserveWidth - ToolbarButtonWidth;
+            int maxVisible = Math.Max(0, Math.Min(managedButtons.Count, (int)(available / ToolbarButtonWidth)));
 
             for (int i = 0; i < managedButtons.Count; i++)
             {
@@ -778,7 +780,14 @@ namespace TrayChrome
                 bool shouldShow = i < maxVisible;
                 button.Visibility = shouldShow ? Visibility.Visible : Visibility.Collapsed;
                 if (!shouldShow)
+                {
                     overflowButtons.Add(button);
+                }
+            }
+
+            if (ScriptInjectButton != null)
+            {
+                ScriptInjectButton.Opacity = 1;
             }
 
             if (OpacityButton != null)
@@ -1879,6 +1888,90 @@ namespace TrayChrome
             MessageBox.Show($"已保存 {domain} 的窗口配置\n宽:{this.Width:F0} 高:{this.Height:F0} 缩放:{currentZoomFactor:F1} 透明度:{this.Opacity:P0}", "保存成功", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         
+        private async void ScriptInjectButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (webView?.CoreWebView2 == null)
+                {
+                    MessageBox.Show("浏览器未初始化", "注入失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                var dialog = new Microsoft.Win32.OpenFileDialog
+                {
+                    Title = "选择 JavaScript 脚本文件",
+                    Filter = "JavaScript 文件 (*.js)|*.js|所有文件 (*.*)|*.*",
+                    DefaultExt = ".js",
+                    Multiselect = true
+                };
+
+                if (dialog.ShowDialog() != true)
+                {
+                    return;
+                }
+
+                int successCount = 0;
+                int failCount = 0;
+                int addedCount = 0;
+
+                appSettings.ScriptFiles ??= new List<string>();
+
+                foreach (var filePath in dialog.FileNames)
+                {
+                    try
+                    {
+                        if (!File.Exists(filePath))
+                        {
+                            failCount++;
+                            Debug.WriteLine($"注入脚本失败，文件不存在: {filePath}");
+                            continue;
+                        }
+
+                        string script = File.ReadAllText(filePath);
+                        if (!string.IsNullOrWhiteSpace(script))
+                        {
+                            await webView.CoreWebView2.ExecuteScriptAsync(script);
+                            successCount++;
+
+                            if (!appSettings.ScriptFiles.Any(path => string.Equals(path, filePath, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                appSettings.ScriptFiles.Add(filePath);
+                                addedCount++;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        failCount++;
+                        Debug.WriteLine($"注入脚本失败 {Path.GetFileName(filePath)}: {ex.Message}");
+                    }
+                }
+
+                if (addedCount > 0)
+                {
+                    appSettings.ScriptFiles = appSettings.ScriptFiles
+                        .Where(path => !string.IsNullOrWhiteSpace(path))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+                    SaveSettings();
+                }
+
+                string message = successCount > 0
+                    ? $"成功注入 {successCount} 个脚本" +
+                      (addedCount > 0 ? $"，新增 {addedCount} 个到脚本列表" : "") +
+                      (failCount > 0 ? $"，{failCount} 个失败" : "")
+                    : "所有脚本注入失败";
+
+                MessageBox.Show(message, "脚本注入", MessageBoxButton.OK,
+                    successCount > 0 ? MessageBoxImage.Information : MessageBoxImage.Warning);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"脚本注入出错: {ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+        
         // ResizeButton的窗口调整大小功能
         private void ResizeButton_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
@@ -2305,11 +2398,12 @@ namespace TrayChrome
                 bool proxyChanged = (appSettings.IsProxyEnabled != settings.IsProxyEnabled) || 
                                    (appSettings.ProxyServer != settings.ProxyServer);
                 
-                appSettings.IsProxyEnabled = settings.IsProxyEnabled;
-                appSettings.ProxyServer = settings.ProxyServer;
-                
-                if (proxyChanged)
-                {
+                 appSettings.IsProxyEnabled = settings.IsProxyEnabled;
+                 appSettings.ProxyServer = settings.ProxyServer;
+                appSettings.ScriptFiles = new List<string>(settings.ScriptFiles ?? new List<string>());
+                 
+                 if (proxyChanged)
+                 {
                     _ = UpdateProxyConfig(); // 异步调用
                 }
                 
@@ -2671,6 +2765,7 @@ namespace TrayChrome
         
         // 启动设置
         public bool AutoZoomOutOnStartup { get; set; } = true;
+        public List<string> ScriptFiles { get; set; } = new List<string>();
         
         // 内部使用的快捷键解析属性
         public uint HotKeyModifiers 
