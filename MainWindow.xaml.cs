@@ -1826,12 +1826,12 @@ namespace TrayChrome
                 double newHeight = this.Height + deltaY;
                 
                 // 设置最小尺寸限制
-                if (newWidth >= 200)
+                if (newWidth >= 20)
                 {
                     this.Width = newWidth;
                 }
                 
-                if (newHeight >= 300)
+                if (newHeight >= 30)
                 {
                     this.Height = newHeight;
                 }
@@ -2181,12 +2181,12 @@ namespace TrayChrome
                 double newHeight = this.Height + deltaY;
                 
                 // 设置最小尺寸限制
-                if (newWidth >= 200)
+                if (newWidth >= 20)
                 {
                     this.Width = newWidth;
                 }
                 
-                if (newHeight >= 300)
+                if (newHeight >= 30)
                 {
                     this.Height = newHeight;
                 }
